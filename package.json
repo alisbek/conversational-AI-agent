@@ -4,10 +4,14 @@
   "description": "VSCode conversational AI assistant for .NET and cloud development",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "api": "node api/server.js"
   },
   "dependencies": {
+    "@qdrant/js-client-rest": "^1.17.0",
     "axios": "^1.0.0",
-    "@qdrant/js-client-rest": "^1.17.0"
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.1"
   }
 }
