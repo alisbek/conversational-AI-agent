@@ -1,5 +1,6 @@
 // entry point for the conversational AI agent
 
+require('dotenv').config();
 const nlp = require('./nlp/nlp');
 const knowledgeGraph = require('./knowledgeGraph/knowledgeGraph');
 const refactoringAssistant = require('./refactoringAssistant/refactoringAssistant');

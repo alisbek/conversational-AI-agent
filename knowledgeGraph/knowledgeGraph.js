@@ -24,11 +24,10 @@ async function init() {
   vectorSize = config;
   
   try {
-    await qdrantClient.collections.get('knowledge');
+    await qdrantClient.getCollection('knowledge');
     console.log('Qdrant collection "knowledge" already exists');
   } catch {
-    await qdrantClient.collections.create({
-      collection_name: 'knowledge',
+    await qdrantClient.createCollection('knowledge', {
       vectors: { size: vectorSize, distance: 'Cosine' }
     });
     console.log(`Qdrant collection "knowledge" created with vector size ${vectorSize}`);
@@ -53,8 +52,7 @@ async function getKnowledgeGraph(data) {
   }
 
   if (embedding && embedding.length > 0) {
-    await qdrantClient.points.upsert({
-      collection_name: 'knowledge',
+    await qdrantClient.upsert('knowledge', {
       points: [{
         id: Date.now(),
         vector: embedding,
@@ -115,8 +113,7 @@ async function searchContext(query, limit = 5) {
   }
 
   try {
-    const results = await qdrantClient.points.search({
-      collection_name: 'knowledge',
+    const results = await qdrantClient.search('knowledge', {
       vector: embedding,
       limit,
       with_payload: true

@@ -281,21 +281,15 @@ async function analyzeText(text) {
 
   if (llmConfig.enabled && normalizedText) {
     try {
-      const [semanticInsights, semanticEmbedding] = await Promise.all([
+      const [semanticInsights, initialEmbedding] = await Promise.all([
         getSemanticInsights(normalizedText, llmConfig),
-        llmConfig.isOllama ? Promise.resolve(null) : getEmbedding(normalizedText, llmConfig)
+        getEmbedding(normalizedText, llmConfig).catch(e => {
+          console.error('Embedding generation failed:', e.message);
+          return null;
+        })
       ]);
 
-      let embedding = semanticEmbedding;
-      
-      if (!embedding && normalizedText) {
-        try {
-          embedding = await getEmbedding(normalizedText, llmConfig);
-        } catch (e) {
-          console.error('Embedding generation failed:', e.message);
-        }
-      }
-
+      embedding = initialEmbedding;
       semantic = semanticInsights;
     } catch (error) {
       semanticError = error.message;
