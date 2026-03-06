@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "api": "node api/server.js"
+    "api": "node api/server.js",
+    "test": "jest --runInBand",
+    "test:unit": "jest --runInBand tests/unit",
+    "test:integration": "jest --runInBand tests/integration"
   },
   "dependencies": {
     "@qdrant/js-client-rest": "^1.17.0",
@@ -13,5 +16,9 @@
     "cors": "^2.8.6",
     "dotenv": "^16.6.1",
     "express": "^4.22.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.1.1"
   }
 }

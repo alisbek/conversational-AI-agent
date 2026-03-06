@@ -2,18 +2,19 @@ const { QdrantClient } = require('@qdrant/js-client-rest');
 const { analyzeText } = require('../nlp/nlp');
 const logger = require('../utils/logger');
 const { withRetry } = require('../utils/retry');
+const config = require('../config');
 
 let qdrant;
 let collectionInitialized = false;
 const CONVERSATION_COLLECTION = 'conversations';
-const MAX_CONTEXT_TOKENS = 4000;
-const MAX_RELEVANT_MESSAGES = 10;
+const MAX_CONTEXT_TOKENS = config.conversation.maxContextTokens || 4000;
+const MAX_RELEVANT_MESSAGES = config.conversation.maxRelevantMessages || 10;
 
 function getQdrantClient() {
   if (!qdrant) {
     qdrant = new QdrantClient({
-      url: process.env.QDRANT_URL || 'http://localhost:6333',
-      checkCompatibility: false
+      url: config.qdrant.url,
+      checkCompatibility: config.qdrant.checkCompatibility
     });
   }
   return qdrant;
@@ -21,7 +22,7 @@ function getQdrantClient() {
 
 async function initConversationMemory() {
   const qdrantClient = getQdrantClient();
-  const vectorSize = parseInt(process.env.QDRANT_VECTOR_SIZE) || 768;
+  const vectorSize = config.qdrant.conversationVectorSize || 768;
   
   try {
     await withRetry(
@@ -56,7 +57,7 @@ async function storeMessage(sessionId, role, content, metadata = {}) {
       reason: 'llm_embedding_unavailable',
       scope: 'storeMessage'
     });
-    embedding = generateFallbackEmbedding(content, parseInt(process.env.QDRANT_VECTOR_SIZE) || 768);
+    embedding = generateFallbackEmbedding(content, config.qdrant.conversationVectorSize || 768);
   }
   
   const messageId = `${sessionId}-${Date.now()}`;
@@ -178,7 +179,7 @@ async function getRelevantContext(sessionId, query, options = {}) {
       reason: 'llm_embedding_unavailable',
       scope: 'getRelevantContext'
     });
-    embedding = generateFallbackEmbedding(query, parseInt(process.env.QDRANT_VECTOR_SIZE) || 768);
+    embedding = generateFallbackEmbedding(query, config.qdrant.conversationVectorSize || 768);
   }
   
   const maxTokens = options.maxTokens || MAX_CONTEXT_TOKENS;

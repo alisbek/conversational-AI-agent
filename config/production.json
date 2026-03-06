@@ -1,0 +1,8 @@
+{
+  "logging": {
+    "level": "info"
+  },
+  "conversation": {
+    "defaultPruneKeepLast": 200
+  }
+}

@@ -1,4 +1,6 @@
 const https = require('https');
+const config = require('../config');
+const logger = require('../utils/logger');
 
 const PROVIDERS = {
   azure: {
@@ -19,13 +21,19 @@ const PROVIDERS = {
 };
 
 function getConfiguredProviders() {
+  const providerValues = {
+    AZURE_SUBSCRIPTION_ID: config.cloud.azureSubscriptionId,
+    AWS_REGION: config.cloud.awsRegion,
+    GOOGLE_CLOUD_PROJECT: config.cloud.gcpProject
+  };
+
   return Object.entries(PROVIDERS)
-    .filter(([, provider]) => Boolean(process.env[provider.env]))
+    .filter(([, provider]) => Boolean(providerValues[provider.env]))
     .map(([id, provider]) => ({ id, name: provider.name, configured: true }));
 }
 
 function getActiveProvider() {
-  const explicitProvider = process.env.CLOUD_PROVIDER;
+  const explicitProvider = config.cloud.provider;
   if (explicitProvider && PROVIDERS[explicitProvider]) {
     return explicitProvider;
   }
@@ -69,7 +77,7 @@ async function getCloudStatus(providerId = getActiveProvider()) {
 
   return {
     provider: providerId,
-    configured: Boolean(process.env[provider.env]),
+    configured: Boolean(getConfiguredProviders().some(p => p.id === providerId)),
     healthy: endpoint.reachable,
     statusCode: endpoint.statusCode,
     statusEndpoint: provider.statusEndpoint
@@ -117,7 +125,9 @@ async function init() {
   const configuredProviders = getConfiguredProviders();
   const activeProvider = getActiveProvider();
 
-  console.log(`cloud integration initialized (configured: ${configuredProviders.map(provider => provider.id).join(', ') || 'none'})`);
+  logger.info('cloud.integration.initialized', {
+    configuredProviders: configuredProviders.map(provider => provider.id)
+  });
 
   return {
     activeProvider,

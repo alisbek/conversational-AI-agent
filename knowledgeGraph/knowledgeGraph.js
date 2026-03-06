@@ -4,16 +4,17 @@ const { analyzeText } = require('../nlp/nlp');
 const { QdrantClient } = require('@qdrant/js-client-rest');
 const logger = require('../utils/logger');
 const { withRetry } = require('../utils/retry');
+const config = require('../config');
 
 let qdrant;
 let collectionInitialized = false;
-let vectorSize = 384;
+let vectorSize = config.qdrant.knowledgeVectorSize || 384;
 
 function getQdrantClient() {
   if (!qdrant) {
     qdrant = new QdrantClient({
-      url: process.env.QDRANT_URL || 'http://localhost:6333',
-      checkCompatibility: false
+      url: config.qdrant.url,
+      checkCompatibility: config.qdrant.checkCompatibility
     });
   }
 
@@ -22,8 +23,7 @@ function getQdrantClient() {
 
 async function init() {
   const qdrantClient = getQdrantClient();
-  const config = process.env.QDRANT_VECTOR_SIZE ? parseInt(process.env.QDRANT_VECTOR_SIZE) : vectorSize;
-  vectorSize = config;
+  vectorSize = config.qdrant.knowledgeVectorSize || vectorSize;
   
   try {
     await withRetry(

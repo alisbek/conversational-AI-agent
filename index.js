@@ -1,6 +1,5 @@
 // entry point for the conversational AI agent
 
-require('dotenv').config();
 const nlp = require('./nlp/nlp');
 const knowledgeGraph = require('./knowledgeGraph/knowledgeGraph');
 const refactoringAssistant = require('./refactoringAssistant/refactoringAssistant');
@@ -9,11 +8,13 @@ const lookupService = require('./lookupService/lookupService');
 const gitCommitHelper = require('./gitCommitHelper/gitCommitHelper');
 const vscodeIntegration = require('./vscodeIntegration/vscodeIntegration');
 const cloudIntegration = require('./cloudIntegration/cloudIntegration');
+const config = require('./config');
+const logger = require('./utils/logger');
 
 async function main() {
-  console.log('starting conversational AI agent');
+  logger.info('agent.starting', { env: config.nodeEnv });
 
-  const startupText = process.env.AGENT_STARTUP_TEXT || 'Analyze and summarize this repository for cloud readiness.';
+  const startupText = config.app.startupText;
 
   const [nlpResult, cloudInfo, vscodeInfo, kgInfo] = await Promise.all([
     nlp.analyzeText(startupText),
@@ -22,21 +23,29 @@ async function main() {
     knowledgeGraph.init()
   ]);
 
-  console.log(`nlp ready (tokens: ${nlpResult.tokenCount}, intents: ${nlpResult.intents.map(intent => intent.intent).join(', ') || 'none'})`);
-  console.log(`semantic nlp (enabled: ${nlpResult.semantic.enabled}, embedding dims: ${nlpResult.embeddingDimensions || 0}, model: ${nlpResult.semantic.model})`);
-  console.log(`knowledge graph ready`);
-  console.log(`cloud ready (active provider: ${cloudInfo.activeProvider || 'none'})`);
-  console.log(`vscode ready (commands: ${vscodeInfo.commandCount})`);
+  logger.info('agent.ready.nlp', {
+    tokens: nlpResult.tokenCount,
+    intents: nlpResult.intents.map(intent => intent.intent),
+    semanticEnabled: nlpResult.semantic.enabled,
+    embeddingDimensions: nlpResult.embeddingDimensions || 0,
+    model: nlpResult.semantic.model
+  });
+  logger.info('agent.ready.knowledge_graph');
+  logger.info('agent.ready.cloud', { activeProvider: cloudInfo.activeProvider || 'none' });
+  logger.info('agent.ready.vscode', { commandCount: vscodeInfo.commandCount });
 
   const testData = 'This is a test document about cloud deployment with Azure and Kubernetes.';
   const stored = await knowledgeGraph.getKnowledgeGraph(testData);
-  console.log(`knowledge graph stored: ${stored.embeddingStored}, nodes: ${stored.nodes.length}`);
+  logger.info('agent.knowledge_graph.stored', {
+    embeddingStored: stored.embeddingStored,
+    nodes: stored.nodes.length
+  });
 
   const searchResults = await knowledgeGraph.searchContext('Azure deployment');
-  console.log(`knowledge graph search: ${searchResults.length} results`);
+  logger.info('agent.knowledge_graph.search_completed', { results: searchResults.length });
 }
 
 main().catch(err => {
-  console.error('agent failed:', err);
+  logger.error('agent.failed', err);
   process.exit(1);
 });

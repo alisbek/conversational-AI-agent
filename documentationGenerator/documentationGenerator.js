@@ -1,11 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const config = require('../config');
 
 function getLlmConfig() {
-  const apiKey = process.env.OPENAI_API_KEY || process.env.LLM_API_KEY;
-  const baseUrl = process.env.OPENAI_BASE_URL || process.env.LLM_BASE_URL || 'http://localhost:11434';
-  const chatModel = process.env.LLM_CHAT_MODEL || 'minimax-m2.5:cloud';
+  const apiKey = config.llm.apiKey;
+  const baseUrl = config.llm.baseUrl;
+  const chatModel = config.llm.chatModel;
   
   const isOllama = baseUrl.includes('localhost:11434') || baseUrl.includes('ollama');
   
@@ -14,7 +15,7 @@ function getLlmConfig() {
     apiKey: apiKey || 'dummy',
     baseUrl,
     chatModel,
-    provider: isOllama ? 'ollama' : (process.env.LLM_PROVIDER || 'openai-compatible'),
+    provider: isOllama ? 'ollama' : (config.llm.provider || 'openai-compatible'),
     isOllama
   };
 }
@@ -25,7 +26,7 @@ function getLlmHttpClient(config) {
     headers: {
       'Content-Type': 'application/json'
     },
-    timeout: 120000
+    timeout: config.llm.longRequestTimeoutMs || 120000
   };
   
   if (!config.isOllama && config.apiKey && config.apiKey !== 'dummy') {

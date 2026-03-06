@@ -10,9 +10,10 @@ const {
   pruneOldMessages
 } = require('../conversationMemory/conversationMemory');
 const logger = require('../utils/logger');
+const config = require('../config');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = config.app.port || 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -59,7 +60,7 @@ app.post('/chat', async (req, res) => {
 
     if (useConversationMemory) {
       conversationContext = await buildContextWindow(sessionId, message, {
-        maxTokens: context?.maxContextTokens
+        maxTokens: context?.maxContextTokens || config.conversation.maxContextTokens
       });
 
       await storeMessage(sessionId, 'user', message, {
@@ -81,7 +82,7 @@ app.post('/chat', async (req, res) => {
       });
 
       if (context?.autoPrune) {
-        await pruneOldMessages(sessionId, context?.keepLastMessages || 100);
+        await pruneOldMessages(sessionId, context?.keepLastMessages || config.conversation.defaultPruneKeepLast);
       }
     }
     
@@ -131,7 +132,7 @@ app.post('/conversation/prune', async (req, res) => {
       return res.status(400).json({ error: 'sessionId is required' });
     }
 
-    const result = await pruneOldMessages(sessionId, keepLast || 100);
+    const result = await pruneOldMessages(sessionId, keepLast || config.conversation.defaultPruneKeepLast);
     res.json({ sessionId, ...result });
   } catch (error) {
     logger.error('api.conversation.prune.failed', error);

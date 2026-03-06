@@ -1,6 +1,7 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 const { withRetry } = require('../utils/retry');
+const appConfig = require('../config');
 
 const STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'for', 'from', 'if',
@@ -26,15 +27,11 @@ const INTENT_RULES = [
   { intent: 'cloud_ops', patterns: [/deploy|cloud|azure|aws|gcp|kubernetes|serverless/i] }
 ];
 
-const DEFAULT_LLM_BASE_URL = process.env.LLM_BASE_URL || 'http://localhost:11434';
-const DEFAULT_CHAT_MODEL = process.env.LLM_CHAT_MODEL || 'minimax-m2.5:cloud';
-const DEFAULT_EMBEDDING_MODEL = process.env.LLM_EMBEDDING_MODEL || 'minimax-m2.5:cloud';
-
 function getLlmConfig() {
-  const apiKey = process.env.OPENAI_API_KEY || process.env.LLM_API_KEY;
-  const baseUrl = process.env.OPENAI_BASE_URL || DEFAULT_LLM_BASE_URL;
-  const chatModel = process.env.LLM_CHAT_MODEL || DEFAULT_CHAT_MODEL;
-  const embeddingModel = process.env.LLM_EMBEDDING_MODEL || DEFAULT_EMBEDDING_MODEL;
+  const apiKey = appConfig.llm.apiKey;
+  const baseUrl = appConfig.llm.baseUrl;
+  const chatModel = appConfig.llm.chatModel;
+  const embeddingModel = appConfig.llm.embeddingModel;
 
   const isOllama = baseUrl.includes('localhost:11434') || baseUrl.includes('ollama');
 
@@ -44,22 +41,22 @@ function getLlmConfig() {
     baseUrl,
     chatModel,
     embeddingModel,
-    provider: isOllama ? 'ollama' : (process.env.LLM_PROVIDER || 'openai-compatible'),
+    provider: isOllama ? 'ollama' : (appConfig.llm.provider || 'openai-compatible'),
     isOllama
   };
 }
 
-function getLlmHttpClient(config) {
+function getLlmHttpClient(llmConfig) {
   const clientConfig = {
-    baseURL: config.baseUrl,
+    baseURL: llmConfig.baseUrl,
     headers: {
       'Content-Type': 'application/json'
     },
-    timeout: 60000
+    timeout: appConfig.llm.requestTimeoutMs || 60000
   };
   
-  if (!config.isOllama && config.apiKey && config.apiKey !== 'dummy') {
-    clientConfig.headers['Authorization'] = `Bearer ${config.apiKey}`;
+  if (!llmConfig.isOllama && llmConfig.apiKey && llmConfig.apiKey !== 'dummy') {
+    clientConfig.headers['Authorization'] = `Bearer ${llmConfig.apiKey}`;
   }
   
   return axios.create(clientConfig);

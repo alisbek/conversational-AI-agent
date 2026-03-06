@@ -1,3 +1,5 @@
+const config = require('../config');
+
 function serializeError(error) {
   if (!error) {
     return undefined;
@@ -17,7 +19,7 @@ function createBaseEntry(level, event, context) {
     timestamp: new Date().toISOString(),
     level,
     event,
-    service: process.env.LOG_SERVICE_NAME || 'conversational-ai-agent',
+    service: config.logging.serviceName || 'conversational-ai-agent',
     ...context
   };
 }
@@ -52,7 +54,7 @@ function error(event, err, context = {}) {
 }
 
 function debug(event, context = {}) {
-  if ((process.env.LOG_LEVEL || '').toLowerCase() === 'debug') {
+  if ((config.logging.level || '').toLowerCase() === 'debug') {
     log('debug', event, context);
   }
 }

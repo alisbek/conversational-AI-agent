@@ -1,0 +1,37 @@
+{
+  "app": {
+    "name": "conversational-ai-agent",
+    "port": 3000,
+    "startupText": "Analyze and summarize this repository for cloud readiness."
+  },
+  "logging": {
+    "level": "info",
+    "serviceName": "conversational-ai-agent"
+  },
+  "llm": {
+    "baseUrl": "http://localhost:11434",
+    "provider": "openai-compatible",
+    "chatModel": "minimax-m2.5:cloud",
+    "embeddingModel": "minimax-m2.5:cloud",
+    "requestTimeoutMs": 60000,
+    "longRequestTimeoutMs": 120000,
+    "apiKey": ""
+  },
+  "qdrant": {
+    "url": "http://localhost:6333",
+    "knowledgeVectorSize": 384,
+    "conversationVectorSize": 768,
+    "checkCompatibility": false
+  },
+  "cloud": {
+    "provider": "",
+    "azureSubscriptionId": "",
+    "awsRegion": "",
+    "gcpProject": ""
+  },
+  "conversation": {
+    "maxContextTokens": 4000,
+    "maxRelevantMessages": 10,
+    "defaultPruneKeepLast": 100
+  }
+}
