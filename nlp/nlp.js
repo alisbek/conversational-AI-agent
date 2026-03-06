@@ -1,4 +1,6 @@
 const axios = require('axios');
+const logger = require('../utils/logger');
+const { withRetry } = require('../utils/retry');
 
 const STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'for', 'from', 'if',
@@ -189,17 +191,23 @@ async function getEmbedding(text, config) {
   const client = getLlmHttpClient(config);
   
   if (config.isOllama) {
-    const response = await client.post('/api/embeddings', {
-      model: config.embeddingModel,
-      prompt: text
-    });
+    const response = await withRetry(
+      () => client.post('/api/embeddings', {
+        model: config.embeddingModel,
+        prompt: text
+      }),
+      { operationName: 'llm.embedding.ollama' }
+    );
     return response.data?.embedding || null;
   }
   
-  const response = await client.post('/embeddings', {
-    model: config.embeddingModel,
-    input: text
-  });
+  const response = await withRetry(
+    () => client.post('/embeddings', {
+      model: config.embeddingModel,
+      input: text
+    }),
+    { operationName: 'llm.embedding.openai-compatible' }
+  );
 
   return response.data?.data?.[0]?.embedding || null;
 }
@@ -222,15 +230,18 @@ Constraints:
   let response;
   
   if (config.isOllama) {
-    response = await client.post('/api/chat', {
-      model: config.chatModel,
-      temperature: 0,
-      messages: [
-        { role: 'system', content: prompt },
-        { role: 'user', content: text }
-      ],
-      stream: false
-    });
+    response = await withRetry(
+      () => client.post('/api/chat', {
+        model: config.chatModel,
+        temperature: 0,
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: text }
+        ],
+        stream: false
+      }),
+      { operationName: 'llm.chat.ollama' }
+    );
     const content = response.data?.message?.content;
     if (!content) {
       return null;
@@ -238,20 +249,28 @@ Constraints:
     try {
       const cleaned = content.replace(/^```json\n?/, '').replace(/```$/, '').trim();
       return JSON.parse(cleaned);
-    } catch {
+    } catch (error) {
+      logger.warn('llm.chat.parse_failed', {
+        provider: config.provider,
+        model: config.chatModel,
+        reason: error.message
+      });
       return null;
     }
   }
   
-  response = await client.post('/chat/completions', {
-    model: config.chatModel,
-    temperature: 0,
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: prompt },
-      { role: 'user', content: text }
-    ]
-  });
+  response = await withRetry(
+    () => client.post('/chat/completions', {
+      model: config.chatModel,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: text }
+      ]
+    }),
+    { operationName: 'llm.chat.openai-compatible' }
+  );
 
   const content = response.data?.choices?.[0]?.message?.content;
   if (!content) {
@@ -260,7 +279,12 @@ Constraints:
 
   try {
     return JSON.parse(content);
-  } catch {
+  } catch (error) {
+    logger.warn('llm.chat.parse_failed', {
+      provider: config.provider,
+      model: config.chatModel,
+      reason: error.message
+    });
     return null;
   }
 }
@@ -284,7 +308,10 @@ async function analyzeText(text) {
       const [semanticInsights, initialEmbedding] = await Promise.all([
         getSemanticInsights(normalizedText, llmConfig),
         getEmbedding(normalizedText, llmConfig).catch(e => {
-          console.error('Embedding generation failed:', e.message);
+          logger.error('llm.embedding.failed', e, {
+            provider: llmConfig.provider,
+            model: llmConfig.embeddingModel
+          });
           return null;
         })
       ]);
@@ -293,6 +320,10 @@ async function analyzeText(text) {
       semantic = semanticInsights;
     } catch (error) {
       semanticError = error.message;
+      logger.error('llm.semantic.failed', error, {
+        provider: llmConfig.provider,
+        model: llmConfig.chatModel
+      });
     }
   }
 

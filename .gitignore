@@ -1,4 +1,15 @@
 package-lock.json
-node_modules/*
+node_modules/**
 nul
-qdrant_storage/*
+qdrant_storage/**
+qdrant_storage/collections/knowledge/0/newest_clocks.json
+qdrant_storage/collections/knowledge/0/newest_clocks.json
+qdrant_storage/collections/knowledge/0/segments/b790f529-e292-4d09-ab60-ba75a968f54e/segment.json
+qdrant_storage/collections/knowledge/0/segments/b790f529-e292-4d09-ab60-ba75a968f54e/payload_storage/bitmask.dat
+qdrant_storage/collections/knowledge/0/segments/b790f529-e292-4d09-ab60-ba75a968f54e/payload_storage/gaps.dat
+qdrant_storage/collections/knowledge/0/segments/b790f529-e292-4d09-ab60-ba75a968f54e/payload_storage/page_0.dat
+qdrant_storage/collections/knowledge/0/segments/b790f529-e292-4d09-ab60-ba75a968f54e/payload_storage/tracker.dat
+qdrant_storage/collections/knowledge/0/segments/b790f529-e292-4d09-ab60-ba75a968f54e/vector_storage/deleted/status.dat
+qdrant_storage/collections/knowledge/0/segments/b790f529-e292-4d09-ab60-ba75a968f54e/vector_storage/vectors/status.dat
+qdrant_storage/collections/knowledge/0/wal/first-index
+qdrant_storage/collections/knowledge/0/wal/open-1

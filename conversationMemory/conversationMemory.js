@@ -1,5 +1,7 @@
 const { QdrantClient } = require('@qdrant/js-client-rest');
 const { analyzeText } = require('../nlp/nlp');
+const logger = require('../utils/logger');
+const { withRetry } = require('../utils/retry');
 
 let qdrant;
 let collectionInitialized = false;
@@ -22,12 +24,18 @@ async function initConversationMemory() {
   const vectorSize = parseInt(process.env.QDRANT_VECTOR_SIZE) || 768;
   
   try {
-    await qdrantClient.getCollection(CONVERSATION_COLLECTION);
-  } catch {
-    await qdrantClient.createCollection(CONVERSATION_COLLECTION, {
-      vectors: { size: vectorSize, distance: 'Cosine' }
-    });
-    console.log(`Conversation memory collection created with vector size ${vectorSize}`);
+    await withRetry(
+      () => qdrantClient.getCollection(CONVERSATION_COLLECTION),
+      { operationName: 'qdrant.conversations.getCollection' }
+    );
+  } catch (error) {
+    await withRetry(
+      () => qdrantClient.createCollection(CONVERSATION_COLLECTION, {
+        vectors: { size: vectorSize, distance: 'Cosine' }
+      }),
+      { operationName: 'qdrant.conversations.createCollection' }
+    );
+    logger.info('qdrant.collection.created', { collection: CONVERSATION_COLLECTION, vectorSize });
   }
   
   collectionInitialized = true;
@@ -44,35 +52,36 @@ async function storeMessage(sessionId, role, content, metadata = {}) {
   let embedding = parsed.embedding;
   
   if (!embedding || embedding.length === 0) {
-    console.warn('No embedding generated for message, using fallback');
-    const hash = simpleHash(content);
-    const size = parseInt(process.env.QDRANT_VECTOR_SIZE) || 768;
-    embedding = new Array(size);
-    for (let i = 0; i < size; i++) {
-      embedding[i] = Math.sin(hash * (i + 1)) * 0.1;
-    }
+    logger.warn('conversation.embedding.fallback', {
+      reason: 'llm_embedding_unavailable',
+      scope: 'storeMessage'
+    });
+    embedding = generateFallbackEmbedding(content, parseInt(process.env.QDRANT_VECTOR_SIZE) || 768);
   }
   
   const messageId = `${sessionId}-${Date.now()}`;
   
-  await qdrantClient.upsert(CONVERSATION_COLLECTION, {
-    points: [{
-      id: hashToNumber(messageId),
-      vector: embedding,
-      payload: {
-        sessionId,
-        messageId,
-        role,
-        content,
-        timestamp: new Date().toISOString(),
-        tokenCount: estimateTokens(content),
-        intents: parsed.intents?.map(i => i.intent) || [],
-        topics: parsed.semantic?.topics || [],
-        sentiment: parsed.sentiment?.label || 'neutral',
-        ...metadata
-      }
-    }]
-  });
+  await withRetry(
+    () => qdrantClient.upsert(CONVERSATION_COLLECTION, {
+      points: [{
+        id: hashToNumber(messageId),
+        vector: embedding,
+        payload: {
+          sessionId,
+          messageId,
+          role,
+          content,
+          timestamp: new Date().toISOString(),
+          tokenCount: estimateTokens(content),
+          intents: parsed.intents?.map(i => i.intent) || [],
+          topics: parsed.semantic?.topics || [],
+          sentiment: parsed.sentiment?.label || 'neutral',
+          ...metadata
+        }
+      }]
+    }),
+    { operationName: 'qdrant.conversations.upsert' }
+  );
   
   return {
     messageId,
@@ -98,6 +107,15 @@ function simpleHash(str) {
   return Math.abs(hash) / 2147483647;
 }
 
+function generateFallbackEmbedding(text, size) {
+  const hash = simpleHash(text);
+  const embedding = new Array(size);
+  for (let i = 0; i < size; i++) {
+    embedding[i] = Math.sin(hash * (i + 1)) * 0.1;
+  }
+  return embedding;
+}
+
 function hashToNumber(str) {
   let hash = 5381;
   for (let i = 0; i < str.length; i++) {
@@ -114,11 +132,14 @@ async function getRecentMessages(sessionId, limit = 20) {
   const qdrantClient = getQdrantClient();
   
   try {
-    const results = await qdrantClient.scroll(CONVERSATION_COLLECTION, {
-      limit: limit * 10,
-      with_payload: true,
-      with_vector: false
-    });
+    const results = await withRetry(
+      () => qdrantClient.scroll(CONVERSATION_COLLECTION, {
+        limit: limit * 10,
+        with_payload: true,
+        with_vector: false
+      }),
+      { operationName: 'qdrant.conversations.scroll_recent' }
+    );
     
     const messages = results.points
       .filter(p => p.payload?.sessionId === sessionId)
@@ -138,7 +159,7 @@ async function getRecentMessages(sessionId, limit = 20) {
     
     return messages;
   } catch (error) {
-    console.error('Error retrieving recent messages:', error.message);
+    logger.error('conversation.recent_messages.failed', error, { sessionId, limit });
     return [];
   }
 }
@@ -153,24 +174,25 @@ async function getRelevantContext(sessionId, query, options = {}) {
   
   let embedding = parsed.embedding;
   if (!embedding || embedding.length === 0) {
-    console.warn('No embedding for query, using fallback');
-    const hash = simpleHash(query);
-    const size = parseInt(process.env.QDRANT_VECTOR_SIZE) || 768;
-    embedding = new Array(size);
-    for (let i = 0; i < size; i++) {
-      embedding[i] = Math.sin(hash * (i + 1)) * 0.1;
-    }
+    logger.warn('conversation.embedding.fallback', {
+      reason: 'llm_embedding_unavailable',
+      scope: 'getRelevantContext'
+    });
+    embedding = generateFallbackEmbedding(query, parseInt(process.env.QDRANT_VECTOR_SIZE) || 768);
   }
   
   const maxTokens = options.maxTokens || MAX_CONTEXT_TOKENS;
   const maxMessages = options.maxMessages || MAX_RELEVANT_MESSAGES;
   
   try {
-    const results = await qdrantClient.search(CONVERSATION_COLLECTION, {
-      vector: embedding,
-      limit: maxMessages * 3,
-      with_payload: true
-    });
+    const results = await withRetry(
+      () => qdrantClient.search(CONVERSATION_COLLECTION, {
+        vector: embedding,
+        limit: maxMessages * 3,
+        with_payload: true
+      }),
+      { operationName: 'qdrant.conversations.search_relevant' }
+    );
     
     const sessionMessages = results
       .filter(r => r.payload?.sessionId === sessionId)
@@ -209,7 +231,7 @@ async function getRelevantContext(sessionId, query, options = {}) {
       messageCount: context.length
     };
   } catch (error) {
-    console.error('Error retrieving relevant context:', error.message);
+    logger.error('conversation.relevant_context.failed', error, { sessionId });
     return {
       context: [],
       totalTokens: 0,
@@ -267,11 +289,14 @@ async function getSessionStats(sessionId) {
   const qdrantClient = getQdrantClient();
   
   try {
-    const results = await qdrantClient.scroll(CONVERSATION_COLLECTION, {
-      limit: 1000,
-      with_payload: true,
-      with_vector: false
-    });
+    const results = await withRetry(
+      () => qdrantClient.scroll(CONVERSATION_COLLECTION, {
+        limit: 1000,
+        with_payload: true,
+        with_vector: false
+      }),
+      { operationName: 'qdrant.conversations.scroll_stats' }
+    );
     
     const sessionMessages = results.points.filter(p => p.payload?.sessionId === sessionId);
     
@@ -325,7 +350,7 @@ async function getSessionStats(sessionId) {
     
     return stats;
   } catch (error) {
-    console.error('Error getting session stats:', error.message);
+    logger.error('conversation.session_stats.failed', error, { sessionId });
     return null;
   }
 }
@@ -338,11 +363,14 @@ async function pruneOldMessages(sessionId, keepLast = 50) {
   const qdrantClient = getQdrantClient();
   
   try {
-    const results = await qdrantClient.scroll(CONVERSATION_COLLECTION, {
-      limit: 1000,
-      with_payload: true,
-      with_vector: false
-    });
+    const results = await withRetry(
+      () => qdrantClient.scroll(CONVERSATION_COLLECTION, {
+        limit: 1000,
+        with_payload: true,
+        with_vector: false
+      }),
+      { operationName: 'qdrant.conversations.scroll_prune' }
+    );
     
     const sessionMessages = results.points
       .filter(p => p.payload?.sessionId === sessionId)
@@ -356,9 +384,12 @@ async function pruneOldMessages(sessionId, keepLast = 50) {
     const idsToDelete = toDelete.map(m => hashToNumber(m.payload.messageId));
     
     if (idsToDelete.length > 0) {
-      await qdrantClient.delete(CONVERSATION_COLLECTION, {
-        points: idsToDelete
-      });
+      await withRetry(
+        () => qdrantClient.delete(CONVERSATION_COLLECTION, {
+          points: idsToDelete
+        }),
+        { operationName: 'qdrant.conversations.delete_prune' }
+      );
     }
     
     return {
@@ -366,7 +397,7 @@ async function pruneOldMessages(sessionId, keepLast = 50) {
       kept: keepLast
     };
   } catch (error) {
-    console.error('Error pruning old messages:', error.message);
+    logger.error('conversation.prune.failed', error, { sessionId, keepLast });
     return { pruned: 0, error: error.message };
   }
 }

@@ -2,6 +2,8 @@
 
 const { analyzeText } = require('../nlp/nlp');
 const { QdrantClient } = require('@qdrant/js-client-rest');
+const logger = require('../utils/logger');
+const { withRetry } = require('../utils/retry');
 
 let qdrant;
 let collectionInitialized = false;
@@ -24,13 +26,19 @@ async function init() {
   vectorSize = config;
   
   try {
-    await qdrantClient.getCollection('knowledge');
-    console.log('Qdrant collection "knowledge" already exists');
-  } catch {
-    await qdrantClient.createCollection('knowledge', {
-      vectors: { size: vectorSize, distance: 'Cosine' }
-    });
-    console.log(`Qdrant collection "knowledge" created with vector size ${vectorSize}`);
+    await withRetry(
+      () => qdrantClient.getCollection('knowledge'),
+      { operationName: 'qdrant.knowledge.getCollection' }
+    );
+    logger.info('qdrant.collection.exists', { collection: 'knowledge' });
+  } catch (error) {
+    await withRetry(
+      () => qdrantClient.createCollection('knowledge', {
+        vectors: { size: vectorSize, distance: 'Cosine' }
+      }),
+      { operationName: 'qdrant.knowledge.createCollection' }
+    );
+    logger.info('qdrant.collection.created', { collection: 'knowledge', vectorSize });
   }
   
   collectionInitialized = true;
@@ -48,23 +56,29 @@ async function getKnowledgeGraph(data) {
   
   if (!embedding || embedding.length === 0) {
     embedding = generateFallbackEmbedding(data, vectorSize);
-    console.log('Using fallback embedding (Ollama embedding not available)');
+    logger.warn('knowledge.embedding.fallback', {
+      reason: 'llm_embedding_unavailable',
+      vectorSize
+    });
   }
 
   if (embedding && embedding.length > 0) {
-    await qdrantClient.upsert('knowledge', {
-      points: [{
-        id: Date.now(),
-        vector: embedding,
-        payload: {
-          text: data,
-          summary: parsed.semantic?.summary,
-          intents: parsed.intents,
-          topics: parsed.semantic?.topics,
-          created_at: new Date().toISOString()
-        }
-      }]
-    });
+    await withRetry(
+      () => qdrantClient.upsert('knowledge', {
+        points: [{
+          id: Date.now(),
+          vector: embedding,
+          payload: {
+            text: data,
+            summary: parsed.semantic?.summary,
+            intents: parsed.intents,
+            topics: parsed.semantic?.topics,
+            created_at: new Date().toISOString()
+          }
+        }]
+      }),
+      { operationName: 'qdrant.knowledge.upsert' }
+    );
   }
 
   return {
@@ -113,11 +127,14 @@ async function searchContext(query, limit = 5) {
   }
 
   try {
-    const results = await qdrantClient.search('knowledge', {
-      vector: embedding,
-      limit,
-      with_payload: true
-    });
+    const results = await withRetry(
+      () => qdrantClient.search('knowledge', {
+        vector: embedding,
+        limit,
+        with_payload: true
+      }),
+      { operationName: 'qdrant.knowledge.search' }
+    );
     
     return results.map(r => ({
       id: r.id,
@@ -127,7 +144,7 @@ async function searchContext(query, limit = 5) {
       topics: r.payload?.topics
     }));
   } catch (e) {
-    console.error('Search error:', e.message);
+    logger.error('qdrant.knowledge.search_failed', e, { limit });
     return [];
   }
 }
