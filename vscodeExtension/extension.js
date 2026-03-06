@@ -1,16 +1,12 @@
 const vscode = require('vscode');
 const axios = require('axios');
-const path = require('path');
-
-let apiUrl = 'http://localhost:3000';
-let sessionId = 'vscode-local';
 
 function getApiUrl() {
-  return vscode.workspace.getConfiguration('aiAgent').get('apiUrl') || apiUrl;
+  return vscode.workspace.getConfiguration('aiAgent').get('apiUrl') || 'http://localhost:3000';
 }
 
 function getSessionId() {
-  return vscode.workspace.getConfiguration('aiAgent').get('sessionId') || sessionId;
+  return vscode.workspace.getConfiguration('aiAgent').get('sessionId') || 'vscode-local';
 }
 
 async function callApi(endpoint, data) {
@@ -24,30 +20,21 @@ async function callApi(endpoint, data) {
   }
 }
 
-function createWebviewPanel(context) {
-  const panel = vscode.window.createWebviewPanel(
-    'aiAgentChat',
-    'AI Agent Chat',
-    vscode.ViewColumn.Two,
-    {
-      enableScripts: true,
-      retainContextWhenHidden: true
-    }
-  );
-
-  const html = `
-<!DOCTYPE html>
+function getChatHtml() {
+  return `<!DOCTYPE html>
 <html>
 <head>
   <style>
-    body { font-family: var(--vscode-font-family); padding: 10px; margin: 0; }
-    .messages { height: calc(100vh - 120px); overflow-y: auto; }
-    .message { margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; }
+    body { font-family: var(--vscode-font-family); padding: 10px; margin: 0; background: var(--vscode-sideBar-background); color: var(--vscode-foreground); }
+    .messages { height: calc(100vh - 80px); overflow-y: auto; padding-bottom: 8px; }
+    .message { margin-bottom: 12px; padding: 8px 12px; border-radius: 6px; white-space: pre-wrap; word-wrap: break-word; font-size: 13px; }
     .user { background: var(--vscode-editor-selectionBackground); }
     .assistant { background: var(--vscode-editor-background); border: 1px solid var(--vscode-focusBorder); }
-    .input-area { display: flex; gap: 8px; margin-top: 10px; }
-    input { flex: 1; padding: 8px; border-radius: 4px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); }
-    button { padding: 8px 16px; cursor: pointer; }
+    .input-area { display: flex; gap: 6px; position: fixed; bottom: 10px; left: 10px; right: 10px; }
+    input { flex: 1; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--vscode-input-border); background: var(--vscode-input-background); color: var(--vscode-input-foreground); font-size: 13px; }
+    button { padding: 6px 12px; cursor: pointer; border: none; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-radius: 4px; font-size: 13px; }
+    button:hover { background: var(--vscode-button-hoverBackground); }
+    .thinking { opacity: 0.6; font-style: italic; }
   </style>
 </head>
 <body>
@@ -63,6 +50,9 @@ function createWebviewPanel(context) {
     const messagesDiv = document.getElementById('messages');
 
     function addMessage(role, content) {
+      // Remove any "thinking" indicator
+      const thinking = document.querySelector('.thinking');
+      if (thinking) thinking.remove();
       const div = document.createElement('div');
       div.className = 'message ' + role;
       div.textContent = content;
@@ -70,24 +60,29 @@ function createWebviewPanel(context) {
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
 
-    async function send() {
+    function showThinking() {
+      const div = document.createElement('div');
+      div.className = 'message assistant thinking';
+      div.textContent = 'Thinking...';
+      messagesDiv.appendChild(div);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function send() {
       const content = input.value.trim();
       if (!content) return;
       addMessage('user', content);
       input.value = '';
       sendBtn.disabled = true;
-      try {
-        vscode.postMessage({ type: 'ask', content });
-      } catch (e) {
-        addMessage('assistant', 'Error: ' + e.message);
-      }
-      sendBtn.disabled = false;
+      showThinking();
+      vscode.postMessage({ type: 'ask', content });
     }
 
     sendBtn.addEventListener('click', send);
     input.addEventListener('keypress', e => { if (e.key === 'Enter') send(); });
 
     window.addEventListener('message', event => {
+      sendBtn.disabled = false;
       if (event.data.type === 'response') {
         addMessage('assistant', event.data.content);
       } else if (event.data.type === 'error') {
@@ -97,32 +92,54 @@ function createWebviewPanel(context) {
   </script>
 </body>
 </html>`;
+}
 
-  panel.webview.html = html;
+class ChatViewProvider {
+  constructor() {
+    this._view = null;
+  }
 
-  panel.webview.onDidReceiveMessage(async (message) => {
-    if (message.type === 'ask') {
-      try {
-        const response = await callApi('/api/chat', {
-          sessionId: getSessionId(),
-          message: message.content
-        });
-        panel.webview.postMessage({ type: 'response', content: response.assistantMessage || 'No response' });
-      } catch (error) {
-        panel.webview.postMessage({ type: 'error', message: error.message });
+  resolveWebviewView(webviewView) {
+    this._view = webviewView;
+    webviewView.webview.options = { enableScripts: true };
+    webviewView.webview.html = getChatHtml();
+
+    webviewView.webview.onDidReceiveMessage(async (message) => {
+      if (message.type === 'ask') {
+        try {
+          const response = await callApi('/api/chat', {
+            sessionId: getSessionId(),
+            message: message.content
+          });
+          webviewView.webview.postMessage({
+            type: 'response',
+            content: response.assistantMessage || 'No response'
+          });
+        } catch (error) {
+          webviewView.webview.postMessage({ type: 'error', message: error.message });
+        }
       }
-    }
-  });
+    });
+  }
 
-  return panel;
+  postMessage(msg) {
+    if (this._view) {
+      this._view.webview.postMessage(msg);
+    }
+  }
 }
 
 function activate(context) {
-  const chatPanel = createWebviewPanel(context);
+  const chatProvider = new ChatViewProvider();
 
   context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('aiAgentChat', chatProvider, {
+      webviewOptions: { retainContextWhenHidden: true }
+    }),
+
     vscode.commands.registerCommand('aiAgent.startChat', () => {
-      chatPanel.reveal();
+      // Focus the sidebar view
+      vscode.commands.executeCommand('aiAgentChat.focus');
     }),
 
     vscode.commands.registerCommand('aiAgent.askAboutCode', async () => {
@@ -131,34 +148,36 @@ function activate(context) {
         vscode.window.showInformationMessage('No active editor');
         return;
       }
-      const selection = editor.selection;
-      const selectedText = editor.document.getText(selection);
-      const response = await callApi('/api/chat', {
-        sessionId: getSessionId(),
-        message: `Explain this code:\\n\\n${selectedText}`
-      });
-      vscode.window.showInformationMessage(response.assistantMessage);
+      const text = editor.document.getText(editor.selection);
+      if (!text) {
+        vscode.window.showInformationMessage('Select code first');
+        return;
+      }
+      await vscode.commands.executeCommand('aiAgentChat.focus');
+      try {
+        const response = await callApi('/api/chat', {
+          sessionId: getSessionId(),
+          message: `Explain this code:\n\n${text}`
+        });
+        chatProvider.postMessage({ type: 'response', content: response.assistantMessage });
+      } catch (_) { /* error already shown by callApi */ }
     }),
 
     vscode.commands.registerCommand('aiAgent.explainCode', async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor) return;
       const text = editor.document.getText(editor.selection);
-      if (!text) {
+      await vscode.commands.executeCommand('aiAgentChat.focus');
+      try {
+        const message = text
+          ? `Explain this code:\n\`\`\`\n${text}\n\`\`\``
+          : 'Explain the current file';
         const response = await callApi('/api/chat', {
           sessionId: getSessionId(),
-          message: 'Explain the current file'
+          message
         });
-        chatPanel.reveal();
-        chatPanel.webview.postMessage({ type: 'response', content: response.assistantMessage });
-        return;
-      }
-      const response = await callApi('/api/chat', {
-        sessionId: getSessionId(),
-        message: `Explain this code:\`\`\`\\n${text}\\n\`\`\``
-      });
-      chatPanel.reveal();
-      chatPanel.webview.postMessage({ type: 'response', content: response.assistantMessage });
+        chatProvider.postMessage({ type: 'response', content: response.assistantMessage });
+      } catch (_) { /* error already shown by callApi */ }
     }),
 
     vscode.commands.registerCommand('aiAgent.refactorCode', async () => {
@@ -169,16 +188,16 @@ function activate(context) {
         vscode.window.showInformationMessage('Select code to refactor');
         return;
       }
-      const response = await callApi('/api/chat', {
-        sessionId: getSessionId(),
-        message: `Refactor this code:\`\`\`\\n${text}\\n\`\`\``
-      });
-      chatPanel.reveal();
-      chatPanel.webview.postMessage({ type: 'response', content: response.assistantMessage });
+      await vscode.commands.executeCommand('aiAgentChat.focus');
+      try {
+        const response = await callApi('/api/chat', {
+          sessionId: getSessionId(),
+          message: `Refactor this code:\n\`\`\`\n${text}\n\`\`\``
+        });
+        chatProvider.postMessage({ type: 'response', content: response.assistantMessage });
+      } catch (_) { /* error already shown by callApi */ }
     })
   );
-
-  vscode.window.showInformationMessage('AI Agent ready. Run "AI Agent: Start Chat" or use the sidebar.');
 }
 
 function deactivate() {}

@@ -5,3 +5,4 @@ qdrant_storage/**
 qdrant_storage/*
 qdrant_storage/collections/**
 qdrant_storage/collections/*
+vscodeExtension/node_modules/**

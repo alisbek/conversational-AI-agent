@@ -12,8 +12,7 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onCommand:aiAgent.startChat",
-    "onCommand:aiAgent.askAboutCode"
+    "onView:aiAgentChat"
   ],
   "main": "extension.js",
   "dependencies": {
@@ -73,6 +72,9 @@
     }
   },
   "scripts": {
-    "install-local": "code --install-extension ."
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.7.1"
   }
 }
