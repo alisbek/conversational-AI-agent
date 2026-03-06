@@ -1,0 +1,78 @@
+{
+  "name": "conversational-ai-agent",
+  "displayName": "Conversational AI Agent",
+  "description": "Local AI assistant for .NET and cloud development",
+  "version": "0.1.0",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onCommand:aiAgent.startChat",
+    "onCommand:aiAgent.askAboutCode"
+  ],
+  "main": "extension.js",
+  "dependencies": {
+    "axios": "^1.13.6"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "aiAgent.startChat",
+        "title": "AI Agent: Start Chat"
+      },
+      {
+        "command": "aiAgent.askAboutCode",
+        "title": "AI Agent: Ask About Selection"
+      },
+      {
+        "command": "aiAgent.explainCode",
+        "title": "AI Agent: Explain Code"
+      },
+      {
+        "command": "aiAgent.refactorCode",
+        "title": "AI Agent: Refactor Code"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aiAgentPanel",
+          "title": "AI Agent",
+          "icon": "icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "aiAgentPanel": [
+        {
+          "id": "aiAgentChat",
+          "type": "webview",
+          "title": "Chat"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "AI Agent",
+      "properties": {
+        "aiAgent.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:3000",
+          "description": "Backend API URL"
+        },
+        "aiAgent.sessionId": {
+          "type": "string",
+          "default": "vscode-local",
+          "description": "Session ID for conversation"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "install-local": "code --install-extension ."
+  }
+}
