@@ -1,7 +1,15 @@
 const express = require('express');
 const cors = require('cors');
+const { randomUUID } = require('crypto');
 const { analyzeText } = require('../nlp/nlp');
 const { getKnowledgeGraph, searchContext } = require('../knowledgeGraph/knowledgeGraph');
+const {
+  storeMessage,
+  buildContextWindow,
+  getSessionStats,
+  pruneOldMessages
+} = require('../conversationMemory/conversationMemory');
+const logger = require('../utils/logger');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,32 +36,105 @@ app.post('/analyze', async (req, res) => {
 
 app.post('/chat', async (req, res) => {
   try {
-    const { message, context } = req.body;
+    const { message, context, sessionId: incomingSessionId } = req.body;
     if (!message) {
       return res.status(400).json({ error: 'message is required' });
     }
+
+    const sessionId = incomingSessionId || randomUUID();
+    const useConversationMemory = context?.useConversationMemory !== false;
 
     let contextResults = [];
     if (context?.useKnowledgeGraph) {
       contextResults = await searchContext(message, context.limit || 5);
     }
 
+    let conversationContext = {
+      messages: [],
+      totalTokens: 0,
+      messageCount: 0,
+      recentCount: 0,
+      relevantCount: 0
+    };
+
+    if (useConversationMemory) {
+      conversationContext = await buildContextWindow(sessionId, message, {
+        maxTokens: context?.maxContextTokens
+      });
+
+      await storeMessage(sessionId, 'user', message, {
+        source: 'api.chat',
+        contextMessageCount: conversationContext.messageCount
+      });
+    }
+
     const analysis = await analyzeText(message);
+
+    const assistantMessage = analysis.semantic?.summary ||
+      `Detected intents: ${analysis.intents.map(i => i.intent).join(', ') || 'none'}`;
+
+    if (useConversationMemory) {
+      await storeMessage(sessionId, 'assistant', assistantMessage, {
+        source: 'api.chat',
+        generated: true,
+        intents: analysis.intents?.map(intent => intent.intent) || []
+      });
+
+      if (context?.autoPrune) {
+        await pruneOldMessages(sessionId, context?.keepLastMessages || 100);
+      }
+    }
     
     const response = {
+      sessionId,
       message,
+      assistantMessage,
       analysis: {
         intents: analysis.intents,
         entities: analysis.entities,
         sentiment: analysis.sentiment,
         summary: analysis.semantic?.summary
       },
-      context: contextResults,
+      context: {
+        knowledgeGraph: contextResults,
+        conversationWindow: conversationContext
+      },
       timestamp: new Date().toISOString()
     };
 
     res.json(response);
   } catch (error) {
+    logger.error('api.chat.failed', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/conversation/stats', async (req, res) => {
+  try {
+    const { sessionId } = req.query;
+    if (!sessionId) {
+      return res.status(400).json({ error: 'sessionId is required' });
+    }
+
+    const stats = await getSessionStats(sessionId);
+    res.json({ sessionId, stats });
+  } catch (error) {
+    logger.error('api.conversation.stats.failed', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/conversation/prune', async (req, res) => {
+  try {
+    const { sessionId, keepLast } = req.body;
+    if (!sessionId) {
+      return res.status(400).json({ error: 'sessionId is required' });
+    }
+
+    const result = await pruneOldMessages(sessionId, keepLast || 100);
+    res.json({ sessionId, ...result });
+  } catch (error) {
+    logger.error('api.conversation.prune.failed', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -99,14 +180,19 @@ app.get('/search-context', async (req, res) => {
 
 async function start() {
   app.listen(PORT, () => {
-    console.log(`API server running on http://localhost:${PORT}`);
-    console.log(`Endpoints:`);
-    console.log(`  GET  /health           - Health check`);
-    console.log(`  POST /analyze          - Analyze text`);
-    console.log(`  POST /chat             - Chat with context`);
-    console.log(`  POST /knowledge        - Store knowledge`);
-    console.log(`  GET  /knowledge/search - Search knowledge`);
-    console.log(`  GET  /search-context   - Search context (alias)`);
+    logger.info('api.server.started', {
+      url: `http://localhost:${PORT}`,
+      endpoints: [
+        'GET /health',
+        'POST /analyze',
+        'POST /chat',
+        'POST /knowledge',
+        'GET /knowledge/search',
+        'GET /search-context',
+        'GET /conversation/stats',
+        'POST /conversation/prune'
+      ]
+    });
   });
 }
 

@@ -212,10 +212,13 @@ async function getRelevantContext(sessionId, query, options = {}) {
       const tokens = msg.payload?.tokenCount || estimateTokens(msg.payload?.content);
       if (totalTokens + tokens <= maxTokens && context.length < maxMessages) {
         context.push({
+          messageId: msg.payload.messageId,
+          sessionId: msg.payload.sessionId,
           role: msg.payload.role,
           content: msg.payload.content,
           score: msg.score,
           timestamp: msg.payload.timestamp,
+          tokenCount: msg.payload.tokenCount,
           topics: msg.payload.topics,
           intents: msg.payload.intents
         });
